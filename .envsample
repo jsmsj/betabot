@@ -1,0 +1,22 @@
+####### Rename this file to .env from .envsample ########
+DBURL = "mongodburl"
+PREFIX = "pb "
+TOKEN = "discord bot token"
+MODS = "713276935064649792,221971721018671105,556110159252946945,981066577996832798" #jsmsj,arnav,rishimathur,chirag
+max_level = "10"
+announcement_channel_id = "985145428456636427"      # Self-explanatory                
+leaderboard_channel_id = "985840195318448128"       # Self-explanatory                
+lb_update_interval_secs = "60"                      # Self-explanatory
+error_channel = "985840433034821632"                # Self-explanatory        
+level_0 = "985116855440113665"                      # Self-explanatory
+level_1 = "985116923287199754"                      # Self-explanatory
+level_2 = "985116967381917766"                      # Self-explanatory
+level_3 = "985117011547926549"                      # Self-explanatory
+level_4 = "985117050638831638"                      # Self-explanatory
+level_5 = "985117083941621780"                      # Self-explanatory
+level_6 = "985117114530668586"                      # Self-explanatory
+level_7 = "985118740490362901"                      # Self-explanatory
+level_8 = "985118726577860608"                      # Self-explanatory
+level_9 = "985118800779300935"                      # Self-explanatory
+level_10 = "985117140489224222"                     # Self-explanatory
+event_guild_id = "985116174847205447"               # Self-explanatory        
