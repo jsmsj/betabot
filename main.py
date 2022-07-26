@@ -8,15 +8,26 @@ import helpers as hp
 import datetime
 import databsefuncs as dbf
 import secrets
+from itertools import cycle
+
+import pytz
+
+tz_IN = pytz.timezone('Asia/Kolkata') 
+
 
 def make_timestamp():
-    tz = datetime.timezone(datetime.timedelta(hours=5.5))
-    dtobj = datetime.datetime.now().replace(tzinfo=tz)
+    dtobj = datetime.datetime.now(tz_IN)
     return round(dtobj.timestamp())
 
 def make_em_timestamp():
-    tz = datetime.timezone(datetime.timedelta(hours=5.5))
-    return datetime.datetime.now().replace(tzinfo=tz)
+    return datetime.datetime.now(tz_IN)
+
+# ls_activities = cycle(["sleeping",f"{os.environ.get('PREFIX')}submit xyz"])
+
+# @tasks.loop(seconds=60)
+# async def status_swap():
+#     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening ,name=next(ls_activities)))
+
 
 intents = discord.Intents.all()
 
@@ -25,21 +36,26 @@ bot = commands.Bot(command_prefix=os.environ.get("PREFIX"),intents=intents, case
 class MyModal(Modal):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.add_item(InputText(label="Fake Name: [max 12 characters]", placeholder="Enter your fakename here, to appear on the leaderboard"))
+        self.add_item(InputText(label="Fake Name: [max 12 characters]", placeholder="Enter your nickname here, to appear on the leaderboard"))
         self.add_item(InputText(label="Real Name:",placeholder="Enter your real name here."))
 
     async def callback(self, interaction: discord.Interaction):
         if len(self.children[0].value) > 12:
-            await interaction.response.send_message("Error: length of fakename is more than 12, kindly re-register.",ephemeral=True)
+            await interaction.response.send_message("Error: length of nickname is more than 12, kindly re-register.",ephemeral=True)
         else:
             if await dbf.is_fakename_unique(self.children[0].value):
                 await dbf.insert_registered_user(interaction.user.id,self.children[0].value,self.children[1].value)
+                bot_announce_chan = interaction.user.guild.get_channel(int(os.getenv('bot_announcements_channel')))
                 await dbf.insert_userdatatime(interaction.user.id,"REGISTRATION","User has registered for event",make_timestamp())
+                await bot_announce_chan.send(f"{interaction.user.id} - {interaction.user.display_name} - REGESTRATION - User has registered for event")
+                participant_role = interaction.user.guild.get_role(int(os.getenv('participant')))
+                if participant_role not in interaction.user.roles:
+                    await interaction.user.add_roles(participant_role)
                 await interaction.response.send_message("You have successfully registered for the event.", ephemeral=True)
             else:
-                await interaction.response.send_message("Error: fakename used by some other user, kindly re-register.",ephemeral=True)
+                await interaction.response.send_message("Error: nickname used by some other user, kindly re-register.",ephemeral=True)
 
-class PersistentView(discord.ui.View):
+class RegisPersistentView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -56,18 +72,42 @@ class PersistentView(discord.ui.View):
         else:
             await interaction.response.send_message("You have already registered for this event.", ephemeral=True)
 
+# class RuleConfPersistentView(discord.ui.View):
+#     def __init__(self):
+#         super().__init__(timeout=None)
+
+#     @discord.ui.button(
+#         label="Confirm",
+#         style=discord.ButtonStyle.green,
+#         custom_id="persistent_view:green",
+#         emoji="✅",
+#     )
+#     async def green(self, button: discord.ui.Button, interaction: discord.Interaction):
+#         # interaction.response.send_message or interaction.followup.send
+#         eve_guild = await bot.fetch_guild(int(os.getenv('event_guild_id')))
+        # participant_role = eve_guild.get_role(int(os.getenv('participant')))
+        # author = await eve_guild.fetch_member(interaction.user.id)
+        # if participant_role not in author.roles:
+        #     await author.add_roles(participant_role)
+#             await interaction.response.send_message("Thankyou for confirming to the rules.", ephemeral=True)
+#         else:
+#             await interaction.response.send_message("You already have confirmed to the rules, but still thankyou again.", ephemeral=True)
+        
+
 @bot.event
 async def on_ready():
     setattr(bot,"leaderboard_msg_id",None)
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening ,name=f"{os.environ.get('PREFIX')}submit xyz"))
     persistent_views_added = False
     if not persistent_views_added:
-        bot.add_view(PersistentView())
+        bot.add_view(RegisPersistentView())
+        # bot.add_view(RuleConfPersistentView())
         persistent_views_added = True
 
     commands_list = [bot.get_command("submit")]
     for comm in commands_list:
         comm.enabled = False
-    await dbf.insert_mod_logs(bot.user.id,"STOP_EVENT","Bot has (re)started and stopped the event.",make_timestamp())
+    await dbf.insert_mod_logs(bot.user.id,"STOP_EVENT","Bot has (re)started and started the event.",make_timestamp())
     print("Bot is ready!")
 
 # @bot.event
@@ -111,6 +151,7 @@ async def submit(ctx:commands.Context,*,response=None):
         ques_channel = await bot.fetch_channel(ques_channel_id)
         info = False
         lb_chan = await bot.fetch_channel(secrets.leaderboard_chan_id)
+        eve_guild = await bot.fetch_guild(int(os.getenv('event_guild_id')))
         if not await dbf.is_completed(ctx.author.id):
             if resp == correct_answer:
                 em = hp.give_correct_ans_em(resp,ques_channel)
@@ -129,7 +170,6 @@ async def submit(ctx:commands.Context,*,response=None):
                     await ctx.send(embed=emb)
                     await dbf.update_level(ctx.author.id,user_level+1)
                     info = f"Levelled up to {user_level+1}"
-                    eve_guild = await bot.fetch_guild(int(os.getenv('event_guild_id')))
                     role = eve_guild.get_role(int(os.getenv(f'level_{user_level+1}')))
                     author = await eve_guild.fetch_member(ctx.author.id)
                     if role not in author.roles:
@@ -141,10 +181,13 @@ async def submit(ctx:commands.Context,*,response=None):
         else:
             em = discord.Embed(title="Already Completed",description=f"You have already solved all the questions. Now sit back and relax or see the leaderboard : {lb_chan.mention}",color=discord.Color.green())
             await ctx.send(embed=em)
+        bot_announce_chan = await eve_guild.fetch_channel(int(os.getenv('bot_announcements_channel')))
         if info:
             await dbf.insert_userdatatime(ctx.author.id,"SUBMISSION",f"submitted answer---> {resp} for level---> {user_level} | {info}",make_timestamp(),user_level+1)
+            await bot_announce_chan.send(f"`{ctx.author.id} - {ctx.author.display_name}` - SUBMISSION - submitted answer ---> ```{resp}``` for level---> {user_level} | \n```fix\n{info}\n``` \n_ _")
         else:
             await dbf.insert_userdatatime(ctx.author.id,"SUBMISSION",f"submitted answer---> {resp} for level---> {user_level}",make_timestamp(),user_level)
+            await bot_announce_chan.send(f"`{ctx.author.id} - {ctx.author.display_name}` - SUBMISSION - submitted answer ---> ```{resp}``` for level---> `{user_level}` \n_ _")
     else:
         await ctx.send("You have not registered for the event, hence you can not use this command.")
 
@@ -153,12 +196,20 @@ async def submit(ctx:commands.Context,*,response=None):
 async def sendRegisMsg(ctx,channel:discord.TextChannel=None):
     if not channel: return await ctx.send(f"No channel provided to send the message, correct usage: `{os.getenv('PREFIX')}sendRegisMsg #channel`")
     em = hp.get_registration_embed()
-    msg = await channel.send(embed=em,view=PersistentView())
+    msg = await channel.send(embed=em,view=RegisPersistentView())
     await ctx.send(f"Successfully sent registration message -> {msg.jump_url}")
     await dbf.insert_mod_logs(ctx.author.id,"REGISTRATION_MESSAGE",f"Registration message sent to channel_id = {channel.id}",make_timestamp())
 
+# @bot.command(description=f"Sends the rules confirmation message to desired channel (Also gives the participant role to all those who confirm) `{os.getenv('PREFIX')}sendRuleConf #channel`")
+# @hp.is_allowed()
+# async def sendRuleConf(ctx,channel:discord.TextChannel=None):
+#     if not channel: return await ctx.send(f"No channel provided to send the message, correct usage: `{os.getenv('PREFIX')}sendRuleConf #channel`")
+#     msg = await channel.send(content='Click the button to confirm reading all the rules.',view=RuleConfPersistentView())
+#     await ctx.send(f"Successfully sent rule confirmation message -> {msg.jump_url}")
+#     await dbf.insert_mod_logs(ctx.author.id,"RULE_CONF_MSG",f"Rule confirmation message sent to channel_id = {channel.id}",make_timestamp())
 
-@bot.command(description=f"Enables the `submit` command as well as starts the ongoing event. Also it may send all registered users a dm to start answering.\n`{os.getenv('PREFIX')}startEvent` or `{os.getenv('PREFIX')}startEvent true`\n use the second option to dm all users as well.")
+
+@bot.command(description=f"Enables the `submit` command as well as starts the ongoing event. (Also gives level 0 role to all participants) Also it may send all registered users a dm to start answering.\n`{os.getenv('PREFIX')}startEvent` or `{os.getenv('PREFIX')}startEvent true`\n use the second option to dm all users as well.")
 @hp.is_allowed()
 async def startEvent(ctx,sendMsg:bool=False):
     commands_list = [bot.get_command("submit")]
@@ -168,13 +219,18 @@ async def startEvent(ctx,sendMsg:bool=False):
     em = discord.Embed(title="The Event has started !",description=f"All registered users should dm the bot : {bot.user.mention} with their chosen answer in the format `pb submit your_answer`\nFor example,\n`pb submit exmagician`\n`pb submit elonmusk`",color=discord.Color.green())
     msg = await chan.send(embed=em)
     all_registered_users = await dbf.get_all_registered_users()
-    if sendMsg:
-        for i in all_registered_users:
-            try:
-                temp_user = await bot.fetch_user(i['userid'])
+    for i in all_registered_users:
+        try:
+            temp_user = await ctx.guild.fetch_member(i['userid'])
+            lvl0_role = ctx.guild.get_role(int(os.getenv('level_0')))
+            author = await ctx.guild.fetch_member(ctx.author.id)
+            if lvl0_role not in author.roles:
+                await author.add_roles(lvl0_role)
+            if sendMsg:
                 await temp_user.send("The event has started, DM me with your answer in the format, `pb submit your_answer`\nFor Example: \n`pb submit exmagician`\n`pb submit avadakedavra`")
-            except:
-                pass
+        except:
+            pass
+    if sendMsg:
         await ctx.send(f"Successfully started the event and sent all registered users the dm -> {msg.jump_url}")
     await dbf.insert_mod_logs(ctx.author.id,"START_EVENT",f"Event has been started by a mod",make_timestamp())
 
@@ -205,13 +261,11 @@ async def error_insertLevAns(ctx,error):
 @bot.command(description="Shows the leaderboard in your current channel")
 @hp.is_allowed()
 async def showLeaderboard(ctx):
-    chan = await bot.fetch_channel(secrets.leaderboard_chan_id)
+    # chan = await bot.fetch_channel(secrets.leaderboard_chan_id)
     ls_of_data = await dbf.give_level_descending()
     em = hp.give_leaderboard(ls_of_data)
-    msg = await chan.send(embed=em)
-    if not bot.leaderboard_msg_id:
-        bot.leaderboard_msg_id = msg.id
-    await ctx.send(f"Successfully sent the leaderboard -> {msg.jump_url}")
+    await ctx.send(embed=em)
+    # await ctx.send(f"Successfully sent the leaderboard -> {msg.jump_url}")
 
 @bot.command(description=f"Starts updating the leaderboard, updation occours every {os.getenv('lb_update_interval_secs')} seconds")
 @hp.is_allowed()
@@ -262,6 +316,43 @@ async def showSubmissions(ctx,user:discord.User=None):
     ls_of_embs = hp.giveLogEmbed(ls_user_time_log)
     paginator = pages.Paginator(pages=ls_of_embs)
     await paginator.send(ctx)
+
+@bot.command(description=f"Shows details about the user, `{os.getenv('PREFIX')}showUser @User` [@User can be replaced with the userid] or `{os.getenv('PREFIX')}showUser fake_name`")
+@hp.is_allowed()
+async def showUser(ctx,*,data):
+    user=None
+    fake_name = None
+    try:
+        user = await commands.UserConverter().convert(ctx,data)
+    except:
+        fake_name = data    
+    if user:
+        try:
+            user_data = await dbf.get_registered_user_from_id(user.id)
+            em = hp.generate_user_data_embed(user_data)
+            await ctx.send(embed=em)
+        except:
+            await ctx.send("User not registered")
+    if fake_name:
+        try:
+            user_data = await dbf.get_registered_user_from_fake_name(fake_name)
+            em = hp.generate_user_data_embed(user_data)
+            await ctx.send(embed=em)
+        except:
+            await ctx.send("No user found with that nickname")
+
+@bot.command(description="Shows all the registered users with their details.")
+@hp.is_allowed()
+async def showAllUsers(ctx):
+    all_users = await dbf.get_all_registered_users()
+    paginator = pages.Paginator(pages=[hp.generate_user_data_embed(i) for i in all_users])
+    await paginator.send(ctx)
+
+@bot.command(description=f"Deletes the user from registered users table, `{os.getenv('PREFIX')}deleteUser @User` [@User can be replaced with the userid]")
+@hp.is_allowed()
+async def deleteUser(ctx,user:discord.User):
+    await dbf.delete_registered_user(user.id)
+    await ctx.send(f"Successfully deleted the user")
 
 @bot.command(description="Gives the help for various commands avaialable")
 @hp.is_allowed()
